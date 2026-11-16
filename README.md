@@ -96,32 +96,6 @@ BX    R14                      ; 根据 EXC_RETURN 异常返回，硬件恢复 P
 - [FreeRTOS-Kernel / tasks.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/tasks.c)（`vTaskSwitchContext()` 在此）
 - [ARM Cortex-M4 Devices Generic User Guide](https://developer.arm.com/documentation/dui0553/latest/)（架构寄存器/异常权威参考）
 
-## 如何上传到 GitHub
-
-1. 在 GitHub 新建一个**空仓库**（建议名称 `FreeRTOS-CortexM4-Study`，先不要勾选自动创建 README）。
-2. 解压本 ZIP，进入有 `README.md` 的那一层目录，打开 Git Bash 或 PowerShell。
-3. 首次上传：
-
-```bash
-git init
-git add .
-git commit -m "docs: add Cortex-M4F FreeRTOS study notes"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/FreeRTOS-CortexM4-Study.git
-git push -u origin main
-```
-
-4. 后面修改笔记并更新：
-
-```bash
-git status
-git add .
-git commit -m "docs: update PendSV notes"
-git push
-```
-
-如果 `git commit` 提示没有配置身份，按 Git 提示设置 `user.name` / `user.email`；推送需要 GitHub 认证（通常是浏览器登录或凭据管理器）。
-
 ## 范围与说明
 
 - 面向 **Cortex-M4F + 常见非 MPU FreeRTOS 移植**。实际源码随 FreeRTOS 版本、编译器、FPU 设置而不同；请以你项目的 `port.c` 为准。
