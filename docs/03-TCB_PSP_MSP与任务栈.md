@@ -1,5 +1,7 @@
 # 03｜TCB、PSP、MSP、pxCurrentTCB：谁保存什么？
 
+> **新增扩展阅读**：[13-逐字节栈帧图](13-寄存器现场与异常栈帧详图.md)、[17-SVC/PendSV 的寄存器时间轴](17-SVC与PendSV完整汇编寄存器跟踪.md)。
+
 ## 一句话区分
 
 - **TCB（Task Control Block）**：任务的管理结构体，属于内存中的软件数据。

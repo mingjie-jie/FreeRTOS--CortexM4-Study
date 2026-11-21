@@ -1,6 +1,6 @@
-# 示例测试记录
+# v2.0 示例测试记录
 
-打包前在 Linux 环境中执行：
+测试环境：Linux 主机标准 C 编译器；CMake/CTest 编译运行。
 
 ```bash
 cmake -S . -B build
@@ -8,9 +8,13 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-结果：`2/2 tests passed`。
+| 测试 | 验证内容 | 结果 |
+|---|---|---|
+| `pure_c_scheduler_test` | 两个任务的纯 C 周期性回调调度 | PASS |
+| `context_simulation_test` | 保存/恢复每任务的寄存器镜像 | PASS |
+| `register_stack_walkthrough_test` | 硬件基本帧+软件帧布局，原 R2/PC 恢复 | PASS |
+| `delay_state_machine_test` | READY/BLOCKED、到期唤醒和 Idle 执行 | PASS |
 
-- `pure_c_scheduler`：输出 Task1 在 500/1000/1500/2000/2500 ms 执行（5 次）；Task2 在 1000/2000 ms 执行（2 次）。相同时间点优先级更高的 Task2 先运行。
-- `context_simulation`：模拟 Task1 R4=11、R5=31 → 运行后 R4=12、R5=43；切走并运行 Task2 后再恢复 Task1，断言 Task1 原数值保持正确。
+**结果：4/4 tests passed。**
 
-以上只是主机 C 教学实验的测试结果，**并非 STM32F407 硬件测试**，也不验证真实 PendSV/SVC/FPU 异常切换。
+这些仅是电脑上运行的 C 语言教学测试；并没有在本次测试中对 STM32F407 的 SVC/PendSV/FPU 进行硬件在板验证，也不能替代真实移植层中断优先级、异常栈对齐和 FPU lazy stacking 的调试。

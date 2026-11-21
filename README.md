@@ -1,103 +1,121 @@
-# 从裸机到 FreeRTOS 内核：Cortex-M4F 上下文切换学习仓库
+# 从裸机到 FreeRTOS 内核：Cortex-M4F 底层学习工程
 
-> 面向 STM32F407 / Cortex-M4F，按「C 代码 → 汇编 → 异常 → 栈帧 → 调度器」逐步学习。  
-> 本仓库由一段连续的 FreeRTOS 底层学习问答整理而成，重点是**看懂源码并能自己解释每条汇编为什么存在**。
+**版本：v2.0（2026-11-21）｜适配 STM32F407 / Cortex-M4F / Keil ARM Compiler 5（也列出 GCC 参考路径）**
 
-## 一分钟理解
+这套仓库整理了一整段从“CPU 的 PC 为什么能顺序执行”到“如何自己实现 Mini RTOS 的双任务切换和 OS_Delay”的学习过程。以**寄存器、栈、TCB、异常硬件、汇编逐条追踪**为主线，既适合第一次理解底层机制，也适合反复查阅。所有说明和注释都是中文。
 
-- **PC（R15）**：控制指令执行位置；函数调用通常由 `BL` 跳转，异常返回可从任务栈恢复 PC。
-- **LR（R14）**：普通函数调用时保存返回位置；进入异常后 Handler 的 LR 通常装入特殊 **EXC_RETURN**。
-- **PSP / MSP**：任务通常使用 PSP；异常处理使用 MSP。不同任务的 PSP 栈内存相互独立。
-- **TCB**：软件任务控制块，首成员 `pxTopOfStack` 保存任务被切出时的栈顶地址。
-- **SysTick**：提供节拍、处理延时到期，必要时请求任务调度。
-- **PendSV**：保存旧任务的寄存器现场、选择新任务、恢复其现场。
-- **SVC**：在这套 Cortex-M4F 移植中用于启动第一个任务。
+> **阅读重点**：从寄存器入手，建议先读 [02](docs/02-寄存器与局部变量.md) → [13](docs/13-寄存器现场与异常栈帧详图.md) → [17](docs/17-SVC与PendSV完整汇编寄存器跟踪.md)，然后再读异常和调度。旧版本过于简略的问题在 v2.0 中已重点加强。
 
-```text
-Task1(Thread / PSP1)
-        │  SysTick / taskYIELD / ISR 请求切换
-        ▼
-硬件异常入栈：R0-R3、R12、任务LR、PC、xPSR → 旧任务 PSP1 栈
-        │
-        ▼
-PendSV(Handler / MSP)：保存 R4-R11、EXC_RETURN、必要的 S16-S31
-        │  旧 TCB->pxTopOfStack = 保存后的 R0
-        ▼
-vTaskSwitchContext()：更新 pxCurrentTCB → Task2_TCB
-        │
-        ▼
-读取新 TCB 栈顶 → 恢复 R4-R11/EXC_RETURN/可选 FPU → 设置 PSP2
-        │
-        ▼
-BX LR (EXC_RETURN) → 硬件恢复 Task2 的 PC 等 → Task2(Thread / PSP2)
-```
+## 一、快速导航：你想查什么？
 
-## 学习路线
+| 你的疑问 | 直达笔记 |
+|---|---|
+| R0～R15 每个寄存器分别干什么？ | **[02-寄存器与局部变量](docs/02-寄存器与局部变量.md)** |
+| R2 为什么不保存、R3 为什么一直保留？ | [02 第 6 节](docs/02-寄存器与局部变量.md) · **[17-汇编寄存器跟踪](docs/17-SVC与PendSV完整汇编寄存器跟踪.md)** |
+| STM32 的变量到底在哪个寄存器？ | **[12-Keil 寄存器分配实验](docs/12-寄存器分配与反汇编实验.md)** |
+| 任务 R2/PC 与 Handler 临时 R2 的区别？ | **[13-完整栈帧+地址](docs/13-寄存器现场与异常栈帧详图.md)** |
+| MSP/PSP/CONTROL/xPSR/BASEPRI 是什么？ | [03-TCB/PSP/MSP](docs/03-TCB_PSP_MSP与任务栈.md) · **[14-特殊寄存器](docs/14-CortexM特殊寄存器与中断屏蔽.md)** |
+| `STMDB`/`LDMIA` 从哪里开始存、怎么取？ | [07-栈地址计算](docs/07-栈地址计算演练.md) · [13-栈帧图](docs/13-寄存器现场与异常栈帧详图.md) |
+| PC 是怎么被 SVC 恢复成任务入口地址的？ | [06-首次任务启动](docs/06-首次任务启动与初始栈帧.md) · [17-汇编跟踪](docs/17-SVC与PendSV完整汇编寄存器跟踪.md) |
+| `osDelay()` 到底怎样让出 CPU？ | **[15-OS_Delay 阻塞/唤醒](docs/15-osDelay阻塞唤醒与系统Tick.md)** |
+| 想自己写两个任务的 Mini RTOS？ | [10-开发路线](docs/10-MiniRTOS开发路线图.md) · [16-端到端链路](docs/16-从创建任务到延时唤醒完整链路.md) |
+| 看不懂 Thumb 汇编？ | [11-汇编速查](docs/11-ARM汇编指令速查.md) · [18-练习与答案](docs/18-寄存器与栈计算练习题.md) |
 
-| 顺序 | 文档 | 重点 |
-|---:|---|---|
-| 01 | [CPU 如何执行 C 代码](docs/01-CPU与函数跳转.md) | PC、BL、BX LR、嵌套调用、函数参数 |
-| 02 | [寄存器、变量和栈](docs/02-寄存器与局部变量.md) | R0-R15、AAPCS、寄存器分配、栈变量 |
-| 03 | [TCB、PSP、MSP](docs/03-TCB_PSP_MSP与任务栈.md) | 一个 PSP 寄存器，多份任务栈、TCB 寻址 |
-| 04 | [异常机制](docs/04-SVC_PendSV_SysTick_EXC_RETURN.md) | Thread/Handler、硬件压栈、SVC、PendSV |
-| 05 | [PendSV 逐行详解](docs/05-PendSV逐行解析.md) | **用户给出的 ARMCC/RVDS 汇编**，R0-R3 生命周期 |
-| 06 | [启动第一个任务](docs/06-首次任务启动与初始栈帧.md) | VTOR → MSP → CONTROL → SVC → PC |
-| 07 | [STMDB / LDMIA 地址演算](docs/07-栈地址计算演练.md) | 9 个寄存器 36 字节、低地址到高地址排列 |
-| 08 | [亲手做实验](docs/08-实验与调试.md) | 主机 C 仿真、Keil 寄存器观察、常见错误 |
-| 09 | [问答速查与自测](docs/09-FAQ与速查.md) | 从「R2 为什么不保存」到自测题 |
-| 10 | [自己开发 Mini RTOS 的路线图](docs/10-MiniRTOS开发路线图.md) | 应构建的函数与分阶段验收 |
-| 11 | [ARM 汇编语法速查](docs/11-ARM汇编指令速查.md) | `TST/IT/LDR/STMDB/LDMIA/BL/BX` |
+## 二、完整章节目录
 
-原始汇编学习材料：
+### A. 基础与寄存器
 
-- [用户提供的 PendSV 代码（逐段附注）](reference/ARMCC5-PendSV原始代码与注释.md)
-- [用户提供的首次任务启动代码（逐段附注）](reference/ARMCC5-StartFirstTask原始代码与注释.md)
+1. [01｜CPU 与 C 语言函数跳转](docs/01-CPU与函数跳转.md)：PC、BL/BX、参数、返回和裸机运行原理。
+2. **[02｜寄存器深度解析（v2 重写）](docs/02-寄存器与局部变量.md)**：R0～R15 逐一介绍；AAPCS；寄存器溢出；栈局部变量；FPU；R2/R3 解疑。
+3. [03｜TCB、PSP、MSP 与任务栈](docs/03-TCB_PSP_MSP与任务栈.md)：一套 PSP、多个任务栈；TCB 指针多次解引用。
+4. [04｜SVC、PendSV、SysTick、EXC_RETURN](docs/04-SVC_PendSV_SysTick_EXC_RETURN.md)：异常入口和异常返回。
 
-## 可运行示例（注意区分！）
+### B. FreeRTOS 汇编源码
 
-| 示例 | 运行环境 | 功能 | 是否真正 RTOS 上下文切换 |
-|---|---|---|---|
-| [pure_c_scheduler](examples/pure_c_scheduler/) | Windows/Linux/macOS 的 C 编译器 | 两个周期性回调任务，纯 C 非抢占调度 | **否** |
-| [context_simulation](examples/context_simulation/) | Windows/Linux/macOS 的 C 编译器 | 模拟 R4-R11/LR 压栈与出栈、TCB 栈顶管理 | **否**，仅模拟栈内存 |
-| [stm32_register_lab](examples/stm32_register_lab/) | STM32F407 Keil/CubeIDE 的已有工程 | 观察 BL、LR、寄存器和栈访问 | **否**，是反汇编教学代码 |
+5. [05｜PendSV 核心汇编逐行解析](docs/05-PendSV逐行解析.md)：R2/旧 TCB、R3/全局当前指针和调度保护。
+6. [06｜首次启动 SVC 与人工任务栈](docs/06-首次任务启动与初始栈帧.md)：PC 如何在第一次运行前被预填入栈帧。
+7. [07｜STMDB/LDMIA 地址演算](docs/07-栈地址计算演练.md)：九个寄存器保存 36 字节。
+8. [08｜调试实验](docs/08-实验与调试.md)：主机模拟、Keil/CubeIDE 实测。
+9. [09｜高频问答](docs/09-FAQ与速查.md)：对话中的核心疑问归档。
+10. [10｜Mini RTOS 开发路线图](docs/10-MiniRTOS开发路线图.md)：从手动 yield 到 Tick、Idle 和抢占。
+11. [11｜ARM 汇编指令速查](docs/11-ARM汇编指令速查.md)：`MRS/MSR/LDR/STR/TST/IT/STMDB/LDMIA/BL/BX`。
 
-**为什么没有把 `PendSV_Handler` 当作纯 C 示例直接编译？** 真正切换任务的核心涉及特殊寄存器、异常返回和 ABI 约束，需要专门的 ARM 移植实现。本仓库把原始 ARMCC5 汇编放在 `reference/` 供学习；它依赖完整 FreeRTOS 内核、向量表和编译环境，不能单独复制到普通 C 项目中运行。
+### C. v2.0 新增深度讲解
 
-### 电脑上快速运行两个教学实验
+12. **[12｜寄存器分配与反汇编实验](docs/12-寄存器分配与反汇编实验.md)**：6 组 Keil 观察实验。
+13. **[13｜完整寄存器现场与栈帧图](docs/13-寄存器现场与异常栈帧详图.md)**：硬件 32B + 软件 36B 的逐地址表；Task1 原 R2 和 Handler 临时 R2。
+14. **[14｜Cortex-M 特殊寄存器](docs/14-CortexM特殊寄存器与中断屏蔽.md)**：CONTROL、xPSR、BASEPRI、PRIMASK、FAULTMASK、VTOR、ICSR、FPU。
+15. **[15｜osDelay 与阻塞唤醒](docs/15-osDelay阻塞唤醒与系统Tick.md)**：Tick、延时列表、Idle、临界区和回绕。
+16. **[16｜创建任务到延时唤醒全过程](docs/16-从创建任务到延时唤醒完整链路.md)**：xTaskCreate→SVC→PendSV→osDelay。
+17. **[17｜SVC/PendSV 汇编寄存器时间轴](docs/17-SVC与PendSV完整汇编寄存器跟踪.md)**：逐指令追踪 R0、R1、R2、R3 与 RAM 地址变化。
+18. [18｜15 道寄存器与栈计算题](docs/18-寄存器与栈计算练习题.md)：答案折叠，复习时可自测。
+
+## 三、源码原文及参考
+
+- [ARMCC5 PendSV 汇编与注释](reference/ARMCC5-PendSV原始代码与注释.md)
+- [ARMCC5 prvStartFirstTask 汇编与注释](reference/ARMCC5-StartFirstTask原始代码与注释.md)
+- [ARMCC5 SVC Handler 深度跟踪](docs/17-SVC与PendSV完整汇编寄存器跟踪.md)
+- [官方 RVDS/ARM_CM4F/port.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/portable/RVDS/ARM_CM4F/port.c)
+- [官方 GCC/ARM_CM4F/port.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/portable/GCC/ARM_CM4F/port.c)
+- [官方 tasks.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/tasks.c)
+- [ARM Cortex-M4 Generic User Guide](https://documentation-service.arm.com/static/5f2ac4ab60a93e65927bbdbf)
+- [ARM AN298：FPU lazy stacking / context switching](https://documentation-service.arm.com/static/5f0352c0cafe527e86f5bc66)
+
+**版本注意**：`__asm void` + `PRESERVE8` 是 ARMCC5 风格；GCC 通常在 `port.c` 内使用 `__asm volatile` / `naked`。同一套 CPU 机制，不能把两种编译器语法直接混用。实际 `port.c` 随 FreeRTOS 版本/配置可能有所不同。
+
+## 四、可编译、已测试的主机 C 示例
+
+| 工程 | 作用 | 真正的 Cortex-M 上下文切换？ |
+|---|---|---|
+| [pure_c_scheduler](examples/pure_c_scheduler/) | 两个周期性回调的非抢占式调度 | 否 |
+| [context_simulation](examples/context_simulation/) | 模拟独立任务寄存器镜像和 TCB | 否 |
+| **[register_stack_walkthrough](examples/register_stack_walkthrough/)** | 模拟基本异常帧 + 软件现场；验证 R2/PC 的槽位和恢复 | 否，v2 新增 |
+| **[delay_state_machine](examples/delay_state_machine/)** | 模拟阻塞、Tick 到期、Idle | 否，v2 新增 |
+| [stm32_register_lab](examples/stm32_register_lab/) | 可导入已有 Keil/CubeIDE STM32 工程观察反汇编 | 非 RTOS 实验，不能独立烧写 |
+
+命令：
 
 ```bash
-# 在仓库根目录
-cc -std=c11 -Wall -Wextra -pedantic examples/pure_c_scheduler/main.c -o pure_c_scheduler
-./pure_c_scheduler
-
-cc -std=c11 -Wall -Wextra -pedantic examples/context_simulation/main.c -o context_simulation
-./context_simulation
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-Windows PowerShell 使用 MinGW GCC 编译后，执行 `./pure_c_scheduler.exe` / `./context_simulation.exe`（也可使用 MSVC）。
+v2.0 当前四个主机 C 示例都已通过构建与测试；详见 [TEST_RESULTS.md](TEST_RESULTS.md)。**这不代表已经做过 STM32 硬件的真实 PendSV / FPU 测试。**
 
-## 你最值得记住的五条汇编
+## 五、如何使用、上传与更新 GitHub
 
-```asm
-MRS   R0, PSP                  ; 获取旧任务 PSP
-STMDB R0!, {R4-R11, R14}       ; 保存软件现场（可选 FPU 另行处理）
-STR   R0, [R2]                 ; 更新旧任务 TCB->pxTopOfStack
-LDMIA R0!, {R4-R11, R14}       ; 从新任务栈恢复软件现场
-MSR   PSP, R0                  ; 切换到新任务 PSP
-BX    R14                      ; 根据 EXC_RETURN 异常返回，硬件恢复 PC
+1. 解压仓库 ZIP，进入含 `README.md` 的目录。
+2. 在 GitHub 新建一个空仓库，例如 `FreeRTOS-CortexM4-Study`。
+3. 第一次上传：
+
+```bash
+git init
+git add .
+git commit -m "docs: add FreeRTOS Cortex-M4F study v2"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/FreeRTOS-CortexM4-Study.git
+git push -u origin main
 ```
 
-> `R2` 是异常处理程序的**临时工作寄存器**，指向旧任务的 TCB；任务本来的 R2 已在异常入栈时被硬件保存。调度后读取新任务 TCB 主要通过 `R3→R1→R0`，无需保存 Handler 中旧 R2 的临时值。
+**若你已经在 GitHub 上传过 v1，不要重新初始化远程仓库，也不用删除原有仓库**。在你本机已经 `git clone` 的仓库目录中，用 v2 解压得到的文件覆盖**对应工作区文件**（保留 `.git/`），然后：
 
-## 官方源码入口
+```bash
+git status
+git add .
+git commit -m "docs: expand Cortex-M4 registers, exception stacks and osDelay"
+git push
+```
 
-- [FreeRTOS-Kernel / portable / RVDS / ARM_CM4F / port.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/portable/RVDS/ARM_CM4F/port.c)（与你提供的 `__asm void` / `PRESERVE8` 风格相符）
-- [FreeRTOS-Kernel / portable / GCC / ARM_CM4F / port.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/portable/GCC/ARM_CM4F/port.c)（GCC `__attribute__((naked))` + `__asm volatile`）
-- [FreeRTOS-Kernel / tasks.c](https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/tasks.c)（`vTaskSwitchContext()` 在此）
-- [ARM Cortex-M4 Devices Generic User Guide](https://developer.arm.com/documentation/dui0553/latest/)（架构寄存器/异常权威参考）
+> 注意：本 ZIP **没有 `.git/` 历史**，所以直接解压到新目录并不能自动继承你已有仓库的提交历史。最佳做法是在已有仓库的工作目录中更新文件，再提交。
 
-## 范围与说明
+## 六、复习建议
 
-- 面向 **Cortex-M4F + 常见非 MPU FreeRTOS 移植**。实际源码随 FreeRTOS 版本、编译器、FPU 设置而不同；请以你项目的 `port.c` 为准。
-- 文中内存地址、寄存器数值如无明确说明均为教学示例。
-- 自编教学代码使用 [MIT License](LICENSE)；引用的原始 FreeRTOS 源码以官方仓库许可为准。`reference/` 内的短代码片段是用户在对话中提供的学习材料。
+- **第一轮**：02 → 03 → 13（只围绕寄存器和栈）
+- **第二轮**：04 → 06 → 17 → 05（从 SVC 首次启动到 PendSV 切换）
+- **第三轮**：07 → 12 → 18（亲手做地址演算与反汇编）
+- **第四轮**：10 → 15 → 16（扩展 Mini RTOS 和阻塞延时）
+
+本仓库保留原始教学代码，所有主机模拟均明确标记“非真实抢占式 RTOS”。用于教学、面试准备、GitHub 学习记录；实际项目上的 CPU 低层异常代码请以**目标芯片、所用编译器、FreeRTOS 版本与 FPU/MPU 配置**为准。
+
+参见 [CHANGELOG.md](CHANGELOG.md) 查看版本差异。自编代码采用 [MIT License](LICENSE)；引用的官方 FreeRTOS 源码遵守原项目许可。

@@ -2,12 +2,20 @@ cmake_minimum_required(VERSION 3.12)
 project(FreeRTOS_CortexM4_Study_Examples C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-add_executable(pure_c_scheduler examples/pure_c_scheduler/main.c)
-add_executable(context_simulation examples/context_simulation/main.c)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(pure_c_scheduler PRIVATE -Wall -Wextra -pedantic)
-  target_compile_options(context_simulation PRIVATE -Wall -Wextra -pedantic)
-endif()
+
+set(TEACHING_EXAMPLES
+    pure_c_scheduler
+    context_simulation
+    register_stack_walkthrough
+    delay_state_machine
+)
+foreach(example IN LISTS TEACHING_EXAMPLES)
+    add_executable(${example} examples/${example}/main.c)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${example} PRIVATE -Wall -Wextra -Werror -pedantic)
+    endif()
+endforeach()
 enable_testing()
-add_test(NAME pure_c_scheduler_test COMMAND pure_c_scheduler)
-add_test(NAME context_simulation_test COMMAND context_simulation)
+foreach(example IN LISTS TEACHING_EXAMPLES)
+    add_test(NAME ${example}_test COMMAND ${example})
+endforeach()

@@ -1,5 +1,7 @@
 # 11｜看 FreeRTOS PendSV 必备的 ARM/Thumb 汇编语法
 
+> 对照完整寄存器与栈：[02-寄存器](02-寄存器与局部变量.md)、[17-SVC/PendSV 逐条轨迹](17-SVC与PendSV完整汇编寄存器跟踪.md)。
+
 ## 1. 寄存器、寻址与伪指令
 
 ```asm

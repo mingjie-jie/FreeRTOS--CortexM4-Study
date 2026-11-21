@@ -1,5 +1,7 @@
 # 04｜Cortex-M 异常机制：SVC、PendSV、SysTick、EXC_RETURN
 
+> **新增扩展阅读**：[14-特殊寄存器与中断屏蔽](14-CortexM特殊寄存器与中断屏蔽.md)、[16-全流程](16-从创建任务到延时唤醒完整链路.md)。
+
 ## 1. 异常不等于普通函数调用
 
 Cortex-M4 有 Thread Mode（运行普通程序/任务）与 Handler Mode（异常处理）。Thread Mode 可按 CONTROL.SPSEL 选 MSP 或 PSP；Handler Mode 使用 MSP。常用非 MPU FreeRTOS 在任务中用 PSP，中断/异常中用 MSP。

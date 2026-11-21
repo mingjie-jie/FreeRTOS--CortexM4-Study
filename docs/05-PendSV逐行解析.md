@@ -1,5 +1,7 @@
 # 05｜逐行分析 xPortPendSVHandler（重点）
 
+> **v2 深化阅读**：想逐条对应 R0/R1/R2/R3 的生命周期，请看 [17-SVC/PendSV 寄存器时间轴](17-SVC与PendSV完整汇编寄存器跟踪.md)；想看真实 SRAM 地址布局，请看 [13-完整栈帧图](13-寄存器现场与异常栈帧详图.md)。
+
 对应你提供的 **Keil / ARM Compiler 5（RVDS/ARMCC 风格）** 代码，原始全文见 [reference](../reference/ARMCC5-PendSV原始代码与注释.md)。以下是分段的真正目的，**不是直接运行的独立完整 Handler**。
 
 ## 整体概念：谁在调用谁？
